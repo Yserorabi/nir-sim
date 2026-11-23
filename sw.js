@@ -1,7 +1,7 @@
 /* NIR-Sim service worker: precache the whole app so it runs offline after the first load. */
-const VERSION = 'nir-sim-v7-2';
+const VERSION = 'nir-sim-v8-1';
 const FILES = ['./', './index.html', './css/style.css', './manifest.webmanifest',
-  './js/anatomy.js', './js/i18n.js', './js/shapes.js', './js/sim.js', './js/scenarios.js', './js/render.js', './js/ui.js', './js/mobile.js',
+  './js/anatomy.js', './js/i18n.js', './js/shapes.js', './js/sim.js', './js/scenarios.js', './js/access.js', './js/access-ui.js', './js/render.js', './js/ui.js', './js/mobile.js',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(VERSION).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => {

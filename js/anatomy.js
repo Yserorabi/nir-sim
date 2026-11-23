@@ -25,7 +25,7 @@
 
   const L = (en, ar) => ({ en, ar });
   const LBL = {
-    rIliac: L('R femoral / iliac', 'الفخذي / الحرقفي الأيمن'), abdAorta: L('Abdominal aorta', 'الأبهر البطني'), descAorta: L('Descending aorta', 'الأبهر النازل'),
+    rIliac: L('R femoral / iliac', 'الفخذي / الحرقفي الأيمن'), rRadial: L('R radial a.', 'الشريان الكعبري الأيمن'), rBrachial: L('R brachial / axillary a.', 'الشريان العضدي / الإبطي الأيمن'), abdAorta: L('Abdominal aorta', 'الأبهر البطني'), descAorta: L('Descending aorta', 'الأبهر النازل'),
     arch: L('Aortic arch', 'قوس الأبهر'), ascAorta: L('Ascending aorta', 'الأبهر الصاعد'),
     BCA: L('Brachiocephalic trunk', 'الجذع العضدي الرأسي'), RSA: L('Right subclavian a.', 'الشريان تحت الترقوة الأيمن'), aRSA: L('Aberrant right subclavian a.', 'الشريان تحت الترقوة الأيمن الشاذ'),
     RCCA: L('Right CCA', 'السباتي المشترك الأيمن'), RVA: L('Right vertebral a.', 'الفقري الأيمن'), LCCA: L('Left CCA', 'السباتي المشترك الأيسر'),
@@ -270,12 +270,41 @@
     return { x: a.x + dx * f, y: a.y + dy * f, z: a.z + dz * f, tx: dx / Ln, ty: dy / Ln, tz: dz / Ln };
   }
 
+  // Right radial access: the arm (radial -> brachial -> axillary) joins the distal right subclavian. The centerline tree
+  // is RE-ROOTED at the wrist: every segment on the path wrist -> femoral is reversed (same ids), and every other
+  // branch hangs off the reversed segment that now leads into its origin. So the route becomes radial > brachial >
+  // subclavian > (brachiocephalic) > arch, and the LCCA / LSA are reached by turning back along the arch.
+  function armDefs() {
+    return [
+      { id: 'rBrachial', parent: 'RSA2', r: 2.4, arm: true, lbl: 'rBrachial', pts: [[280, 320, -4], [245, 342, -4], [222, 400, -1], [208, 480, 3], [200, 540, 6]] },
+      { id: 'rRadial', parent: 'rBrachial', r: 1.4, arm: true, lbl: 'rRadial', pts: [[200, 540, 6], [196, 600, 10], [192, 680, 16], [189, 760, 22]] }
+    ];
+  }
+  function reRoot(defs, leafId) {
+    const byId = {}; defs.forEach(d => { byId[d.id] = d; });
+    const path = []; let p = byId[leafId];
+    while (p) { path.unshift(p.id); p = p.parent ? byId[p.parent] : null; }
+    const onPath = new Set(path), oldParent = {}; defs.forEach(d => { oldParent[d.id] = d.parent; });
+    const out = defs.map(d => Object.assign({}, d));
+    const O = {}; out.forEach(d => { O[d.id] = d; });
+    path.forEach((id, k) => {
+      const d = O[id];
+      d.pts = d.pts.slice().reverse();
+      d.parent = k === path.length - 1 ? null : path[k + 1];
+      if (k === 0) d.deadEnd = 'femoral';
+    });
+    out.forEach(d => { if (!onPath.has(d.id) && onPath.has(oldParent[d.id])) { const k = path.indexOf(oldParent[d.id]); d.parent = path[k + 1]; } });
+    return { defs: out, root: leafId, path };
+  }
+
   function build(opts) {
     opts = opts || {};
     const type = ARCH_TYPES.includes(opts.archType) ? opts.archType : 'I';
     const variant = VARIANTS.includes(opts.variant) ? opts.variant : 'normal';
     const arch = archDefs(type, variant);
-    const all = fixedDefs().concat(arch.defs).concat(headDefs(opts));
+    const radial = opts.access === 'radial';
+    let all = fixedDefs().concat(arch.defs).concat(headDefs(opts)), root = 'rIliac';
+    if (radial) { const rr = reRoot(all.concat(armDefs()), 'rRadial'); all = rr.defs; root = rr.root; }
     const segs = {}, list = [];
     all.forEach((d, idx) => {
       const c = catmull(d.pts, 1.0);
@@ -290,10 +319,10 @@
       s.intracranial = !!s.head && !/ICAc$|ECA$/.test(s.id);
       s.mca = chain.includes('LM1a');
       s.arch = s.vessel || null; // the arch-vessel this segment belongs to (BCA, RCCA, RSA, RVA, LCCA, LSA, LVA)
-      s.archVessel = chain.map(id => segs[id].vessel).filter(Boolean).pop() || null;
+      s.archVessel = s.aortic ? null : (chain.map(id => segs[id].vessel).filter(Boolean).pop() || null);
     });
     const vessels = ['BCA', 'RCCA', 'RSA', 'RVA', 'LCCA', 'LSA', 'LVA'].filter(v => list.some(s => s.vessel === v));
-    return { segs, list, root: 'rIliac', archType: type, variant, vessels, sApex: arch.sApex, skull: SKULL, siphon: opts.siphon === 'tortuous' ? 'tortuous' : 'normal' };
+    return { segs, list, root, access: radial ? 'radial' : 'femoral', archType: type, variant, vessels, sApex: arch.sApex, skull: SKULL, siphon: opts.siphon === 'tortuous' ? 'tortuous' : 'normal' };
   }
 
   function pointAt(seg, s) { return pointAtPts(seg.pts, s); }
@@ -309,8 +338,27 @@
   function endDir(seg) { return dirAt(seg, seg.len - 4, 8); }
   function startDir(seg) { return dirAt(seg, Math.min(seg.len, 5), 10); }
   // Direction a curved tip points: tangent t bent by A degrees toward the roll direction `torque`
-  function tipDir(t, A, torque) {
-    let ref = Math.abs(t.x) < 0.9 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 0, z: 1 };
+  // Roll frame: torque 0 bends the tip toward CRANIAL (the arch roof, where the great vessels arise), projected
+  // perpendicular to the shaft; where the shaft runs vertically (neck, ascending/descending aorta) the reference
+  // blends smoothly to the patient's LEFT. The frame is continuous along every centerline, so a tip that points
+  // "up" keeps pointing up while the catheter is pulled back around the arch (no hidden orientation windows).
+  // frame 'wire': the legacy wire frame (patient-left / anterior reference) so an untorqued guidewire keeps running
+  // around the arch instead of popping up into the first origin.
+  function tipDir(t, A, torque, frame) {
+    if (frame === 'wire') return tipDirWire(t, A, torque);
+    const ku = -t.y; // dot((0,-1,0), t)
+    const r1 = { x: -ku * t.x, y: -1 - ku * t.y, z: -ku * t.z }, L1 = Math.hypot(r1.x, r1.y, r1.z);
+    const kx = t.x, r2 = { x: 1 - kx * t.x, y: -kx * t.y, z: -kx * t.z }, w = Math.max(0, 0.5 - L1) * 2;
+    let n1 = { x: r1.x + r2.x * w, y: r1.y + r2.y * w, z: r1.z + r2.z * w };
+    const nl = Math.hypot(n1.x, n1.y, n1.z) || 1; n1 = { x: n1.x / nl, y: n1.y / nl, z: n1.z / nl };
+    const n2 = { x: t.y * n1.z - t.z * n1.y, y: t.z * n1.x - t.x * n1.z, z: t.x * n1.y - t.y * n1.x };
+    const r = torque * Math.PI / 180, a = A * Math.PI / 180;
+    const d = { x: Math.cos(r) * n1.x + Math.sin(r) * n2.x, y: Math.cos(r) * n1.y + Math.sin(r) * n2.y, z: Math.cos(r) * n1.z + Math.sin(r) * n2.z };
+    return { x: Math.cos(a) * t.x + Math.sin(a) * d.x, y: Math.cos(a) * t.y + Math.sin(a) * d.y, z: Math.cos(a) * t.z + Math.sin(a) * d.z, d };
+  }
+
+  function tipDirWire(t, A, torque) {
+    const ref = Math.abs(t.x) < 0.9 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 0, z: 1 };
     const k = dot(ref, t);
     let n1 = { x: ref.x - k * t.x, y: ref.y - k * t.y, z: ref.z - k * t.z };
     const nl = Math.hypot(n1.x, n1.y, n1.z) || 1; n1 = { x: n1.x / nl, y: n1.y / nl, z: n1.z / nl };

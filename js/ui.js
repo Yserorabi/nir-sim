@@ -17,6 +17,7 @@
     if (id === 'guide' || id === 'diag') {
       const d = sim.devices[id]; let st = '';
       if (id === 'diag' && d.inserted && sim.isReverse(d)) st = ' (' + (d.formed ? t('shape_form') : d.form > 0.02 ? t('shape_forming', { p: Math.round(d.form * 100) }) : t('shape_unformed')) + ')';
+      if (id === 'guide') return sim.guideSpec().prod + ' · ' + t('shape_' + d.shape) + (sim.bgcInflated ? ' · ' + t('bgc_on') : '');
       return t('dev_' + id) + ' · ' + t('shape_' + d.shape) + st;
     }
     if (id === 'wire') return t('dev_wire') + ' ' + t('sz_gwire_' + sim.sizes.gwire);
@@ -30,7 +31,8 @@
     if (o.dev) o.dev = devName(o.dev);
     if (o.seg) o.seg = segLabel(o.seg);
     if (o.tech) o.tech = t('tech_' + o.tech);
-    if (o.vessel) o.vessel = t('v_' + o.vessel);
+    if (o.vessel) { const vk = 'v_' + o.vessel; o.vessel = t(vk) !== vk ? t(vk) : segLabel(o.vessel); }
+    if (o.site) o.site = t('acc_site_name_' + o.site);
     return o;
   }
 
@@ -44,6 +46,7 @@
     NIR.scenarios.forEach(s => { const o = document.createElement('option'); o.value = s.id; o.textContent = t(s.titleKey); sel.appendChild(o); });
     sel.value = cur || scenario.id;
     const fill = (el, vals, pre) => { const c = el.value; el.innerHTML = ''; vals.forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = t(pre + v); el.appendChild(o); }); el.value = c || vals[0]; };
+    fill($('accessSel'), ['femoral', 'radial', 'skip'], 'access_');
     fill($('archSel'), NIR.anatomy.ARCH_TYPES, 'arch_'); fill($('varSel'), NIR.anatomy.VARIANTS, 'var_'); fill($('siphonSel'), NIR.anatomy.SIPHONS, 'siphon_');
     $('briefTxt').textContent = t(scenario.briefKey);
     if (scenario.anat && scenario.anat.siphon) $('siphonSel').value = scenario.anat.siphon;
@@ -69,7 +72,7 @@
       row.append(nm, use, io);
       if (id === 'guide' || id === 'diag') {
         const ss = document.createElement('select'); ss.id = 'shape_' + id; ss.disabled = d.inserted; ss.title = t('shape');
-        (id === 'guide' ? NIR.sim.GUIDE_SHAPES : NIR.sim.DIAG_SHAPES).forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = t('shape') + ': ' + t('shape_' + v); ss.appendChild(o); });
+        (id === 'guide' ? sim.guideSpec().shapes : NIR.sim.DIAG_SHAPES).forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = t('shape') + ': ' + t('shape_' + v); ss.appendChild(o); });
         ss.value = d.shape; ss.onchange = () => { sim.setShape(id, ss.value); renderDevices(); };
         row.appendChild(ss);
       }
@@ -77,9 +80,18 @@
       if (SZ) {
         const ss = document.createElement('select'); ss.id = 'size_' + id; ss.title = id === 'inter' ? t('size_asp') : id === 'guide' ? t('size_guide') : t('size');
         ss.disabled = id === 'guide' ? (d.inserted && sim.innerDevices(d).length > 0) : d.inserted;
-        Object.keys(SZ[1]).forEach(v => { const o = document.createElement('option'); o.value = v; o.textContent = (id === 'wire' ? t('gwire_type') : t('size')) + ': ' + t('sz_' + SZ[0] + '_' + v); ss.appendChild(o); });
+        Object.keys(SZ[1]).forEach(v => { const o = document.createElement('option'); o.value = v;
+          if (id === 'guide') { const g = SZ[1][v]; o.textContent = t('guide_spec', { p: g.prod, id: g.id.toFixed(3).replace(/^0/, ''), od: g.od.toFixed(3).replace(/^0/, ''), len: g.len }) + (g.bgc ? ' · BGC' : '') + (g.radial ? ' · radial' : ''); }
+          else o.textContent = (id === 'wire' ? t('gwire_type') : t('size')) + ': ' + t('sz_' + SZ[0] + '_' + v);
+          ss.appendChild(o); });
         ss.value = sim.sizes[SZ[0]]; ss.onchange = () => { sim.setSize(SZ[0], ss.value); renderDevices(); };
         row.appendChild(ss);
+      }
+      if (id === 'guide' && sim.guideSpec().bgc) {
+        const bb = document.createElement('button'); bb.id = 'bgcBtn'; bb.className = 'bgc' + (sim.bgcInflated ? ' on' : '');
+        bb.textContent = (sim.bgcInflated ? t('bgc_on') : t('bgc_off')) + ' (O)'; bb.disabled = !d.inserted;
+        bb.onclick = () => { sim.setBalloon(!sim.bgcInflated); renderDevices(); canvas.focus(); };
+        row.appendChild(bb);
       }
       row.appendChild(st); box.appendChild(row);
     });
@@ -125,6 +137,8 @@
         b: Math.round(inf.back || 0), need: inf.need, d: Math.max(0, Math.round(inf.lsaC)), aim: aimText(aim) });
       box.dataset.phase = 'shape_' + sp; return;
     }
+    { const aim = sim.active === 'diag' ? sim.aimPreview() : null;
+      if (aim && aim.mode === 'drop') { box.classList.remove('hidden'); $('hintTxt').textContent = t('hs_simple_pull'); box.dataset.phase = 'drop'; return; } }
     const live = sim.clots.some(c => !c.removed && c.main);
     const ph = sim.srPhase();
     const gseg = sim.locate(sim.devices.guide.s).seg, show = live && ((sim.devices.guide.inserted && (gseg.head || /ICA/.test(gseg.id))) || sim.devices.sr.inserted);
@@ -195,6 +209,12 @@
   function aimText(a) {
     if (!a) return '—';
     if (!a.vessel) return t('aim_none');
+    if (a.mode === 'drop' || a.mode === 'in') {
+      const vk = 'v_' + a.vessel, v = t(vk) !== vk ? t(vk) : segLabel(a.vessel);
+      if (a.mode === 'in') return t('aim_in', { v });
+      if (!a.roof) return t('aim_rotate_up');
+      return t(a.good ? 'aim_drop_ok' : a.flip ? 'aim_drop_flip' : 'aim_steep', { v });
+    }
     const vk = 'v_' + a.vessel, nm = a.vessel === 'aorta' ? t('aim_aorta') : (t(vk) !== vk ? t(vk) : segLabel(a.vessel));
     return nm + (a.vessel !== 'aorta' ? (a.good ? ' ✓' : ' ~') : '');
   }
@@ -241,6 +261,7 @@
       rows.push([t('d_passes'), s.passes], [t('d_fpe'), yes(r.fpe)], [t('d_tici'), r.tici != null ? r.tici : t('na')],
         [t('d_reperf'), s.reperfTime != null ? fmtTime(s.reperfTime) : t('na')], [t('d_blood'), Math.round(s.bloodLoss) + ' ' + t('ml')]);
     } else rows.push([t('d_goals'), `${r.done} / ${r.tot}`]);
+    if (s.access) rows.push([t('d_access'), `${t('acc_site_name_' + s.access.site)} · ${s.access.sheathF}F${s.access.sheathLong ? ' ' + t('acc_long') : ''} · ${s.access.score}/100`]);
     rows.push([t('d_comps'), s.complications.length ? s.complications.map(c => t('comp_' + c.type, fmtParams(c.params)).split(/[!–(]/)[0].trim()).join('; ') : t('none')]);
     const passes = s.passResults.map((p, i) => `<li>${escapeHtml(t('pass_row', { n: i + 1, tech: t('tech_' + p.technique), res: t('res_' + p.result), g: p.tici, p: p.p }))}</li>`).join('');
     $('modalBox').innerHTML = `<h2>${t('debrief')} – ${escapeHtml(t(scenario.titleKey))}</h2>
@@ -260,15 +281,29 @@
     if (ev === 'change' || ev === 'reset') { renderDevices(); renderButtons(); renderGoals(); }
     if (ev === 'select') banner('✓ ' + t('v_' + data.vessel), '#7CFC9A');
     if (ev === 'flash') R.flash = 1;
+    if (ev === 'drop') { const vk = 'v_' + data.vessel, v = t(vk) !== vk ? t(vk) : segLabel(data.vessel); banner((data.kind === 'drop_in' ? '↓ ' : data.kind === 'drop_flip' ? '↺ ' : '→ ') + v, data.kind === 'drop_in' ? '#7CFC9A' : '#ffcf6b'); }
     if (ev === 'stall') { const wl = ['guide', 'inter'].find(id => sim.devices[id].inserted && sim.devices[id].wallImpact > 0); banner('⚠ ' + (wl ? t('wall_banner', { dev: t('dev_' + wl + '_s') }) : t('stall_banner')), wl ? '#ff7b6b' : '#ffcf6b'); }
     if (ev === 'complication') banner('⚠ ' + t('comp_' + data, {}).split(/[!–(]/)[0].replace(/\{\w+\}/, ''), '#ff7b6b');
     if (ev === 'tici') banner('mTICI ' + data, /2b|2c|3/.test(data) ? '#7CFC9A' : '#ffcf6b');
     if (ev === 'debrief') showDebrief(data);
   });
 
-  function startScenario(id) {
+  function accessMode() { return $('accessSel').value || 'femoral'; }
+  function startScenario(id, keepAccess) {
     scenario = NIR.scenarios.find(s => s.id === id) || NIR.scenarios[0];
-    sim.reset(scenario, { archType: $('archSel').value || 'I', variant: $('varSel').value || 'normal', siphon: $('siphonSel').value || 'normal' }); sim.debrief = null;
+    const mode = accessMode(), base = { archType: $('archSel').value || 'I', variant: $('varSel').value || 'normal', siphon: $('siphonSel').value || 'normal' };
+    if (NIR.accessUI && NIR.accessUI.isOpen()) NIR.accessUI.finish(undefined);
+    sim.reset(scenario, Object.assign(base, mode === 'skip' ? { access: 'femoral', accessResult: null } : { access: mode, accessResult: null })); sim.debrief = null;
+    if (mode !== 'skip' && NIR.accessUI && !keepAccess) {
+      NIR.app.paused = true;
+      NIR.accessUI.open(mode, res => {
+        NIR.app.paused = false;
+        if (res === undefined) return; // superseded by a new start
+        if (res) { sim.reset(scenario, Object.assign(base, { access: res.site, accessResult: res })); sim.applyAccess(res); }
+        else sim.reset(scenario, Object.assign(base, { access: mode, accessResult: null }));
+        renderLog(true); renderDevices(); renderGoals(); renderButtons(); canvas.focus();
+      });
+    }
     $('briefTxt').textContent = t(scenario.briefKey);
     if (scenario.anat && scenario.anat.siphon) $('siphonSel').value = scenario.anat.siphon;
     $('siphonSel').disabled = !!(scenario.anat && scenario.anat.siphon);
@@ -280,6 +315,13 @@
   NIR.app.startScenario = startScenario;
 
   $('startBtn').onclick = () => startScenario($('scenarioSel').value);
+  { // access phase choice: ?access=skip|femoral|radial overrides the saved choice
+    const q = new URLSearchParams(location.search).get('access'); let v = q;
+    if (!v) { try { v = localStorage.getItem('nir-access'); } catch (_) { } }
+    ['femoral', 'radial', 'skip'].forEach(x => { const o = document.createElement('option'); o.value = x; o.textContent = x; $('accessSel').appendChild(o); });
+    $('accessSel').value = ['skip', 'femoral', 'radial'].includes(v) ? v : 'femoral';
+    $('accessSel').onchange = () => { try { localStorage.setItem('nir-access', $('accessSel').value); } catch (_) { } startScenario($('scenarioSel').value); };
+  }
   $('archSel').onchange = () => startScenario($('scenarioSel').value);
   $('varSel').onchange = () => startScenario($('scenarioSel').value);
   $('siphonSel').onchange = () => startScenario($('scenarioSel').value);
@@ -337,6 +379,7 @@
     if (/^[1-7]$/.test(k)) { const id = devs[+k - 1]; if (sim.devices[id].inserted) sim.setActive(id); }
     else if (k === 'v') { const order = ['ap', 'lao', 'lat']; R.setView(order[(order.indexOf(R.view) + 1) % 3]); renderButtons(); }
     else if (k === 'k') { $('insetChk').checked = !$('insetChk').checked; }
+    else if (k === 'o') { sim.setBalloon(!sim.bgcInflated); renderDevices(); }
     else if (k === 'c') sim.inject();
     else if (k === 'r') { sim.toggleRoadmap(); renderButtons(); }
     else if (k === 'p') { sim.setAspiration(!sim.aspiration); renderButtons(); }

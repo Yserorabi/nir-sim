@@ -37,6 +37,8 @@
   // Catheter tip shapes. A = effective tip angle (deg, incl. wire assist) that the wire exits at; tol = how far off a
   // branch take-off may be and still be engaged; beyond 0.8*tol the wire tends to prolapse back ("struggles").
   const SHAPES = {
+    str: { A: 5, tol: 30, L: 4, guide: true },      // straight guide / long sheath
+    mpc: { A: 18, tol: 32, L: 6, guide: true },     // multipurpose C (slight angle)
     mpd: { A: 25, tol: 35, L: 6, guide: true },     // multipurpose / straight-ish guide
     h1g: { A: 75, tol: 42, L: 10, guide: true },    // H1-shaped guide
     vert: { A: 62, tol: 45, L: 8 },                 // vertebral (angled)
@@ -46,7 +48,7 @@
     sim2: { A: 150, tol: 40, L: 26, needsForm: true }, // Simmons 2 – reverse curve, must be formed
     pig: { A: 0, tol: 30, L: 10, loop: true }       // pigtail (arch aortogram)
   };
-  const GUIDE_SHAPES = ['mpd', 'h1g'], DIAG_SHAPES = ['vert', 'bern', 'h1', 'vtk', 'sim2', 'pig'];
+  const GUIDE_SHAPES = ['str', 'mpc', 'mpd', 'h1g'], DIAG_SHAPES = ['vert', 'bern', 'h1', 'vtk', 'sim2', 'pig'];
   const SPEED = 14;        // mm/s normal
   const FAST = 3.2;        // multiplier with Shift
   const FLOW_V = 170;      // contrast front mm/s
@@ -84,6 +86,8 @@
     this.clots = [];
     this.aspiration = false; this.engagedTime = 0; this.corked = false;
     this.perforations = []; this.dissections = []; this.caseEndAt = null; this.advLatch = null;
+    this.bgcInflated = false; this.bgcT0 = 0; this.tipPop = null; this.bgcPasses = 0;
+    this.access = this.archOpts.accessResult || null; // result of the access phase (site, sheath, score, complications)
     this.dissRisk = 0; this.spasm = 0; this.endPush = 0; this.wallPush = 0; this.stalled = false;
     this.hangStats = { attempts: 0, hangs: 0, freed: [] }; this.prolapsed = false; this.guideBack = 0;
     this.run = null; this.roadmapOn = false; this.roadmap = null; this.lastRun = null;
@@ -207,7 +211,14 @@
     // the (pre-placed) guide can be exchanged while it is empty
     const emptyGuide = kind === 'guide' && dev && dev.inserted && !this.innerDevices(dev).length;
     if (dev && dev.inserted && !emptyGuide) { this.msg('warn', 'size_locked'); return false; }
-    this.sizes[kind] = val; if (emptyGuide) dev.od = this.devOD(dev); this.emit('change'); return true;
+    this.sizes[kind] = val; if (emptyGuide) dev.od = this.devOD(dev);
+    if (kind === 'guide') {
+      const sp = GUIDE_SIZES[val];
+      if (!sp.shapes.includes(this.shapes.guide)) { this.shapes.guide = sp.shapes[0]; if (!dev.inserted) dev.shape = this.shapes.guide; }
+      if (!sp.bgc) this.bgcInflated = false;
+      const af = this.accessFit(); if (af) this.msg('warn', af.key, af.params);
+    }
+    this.emit('change'); return true;
   };
   // ---- stent retriever geometry ----
   Sim.prototype.srLen = function () { const S = this.devices.sr; return SR_SIZES[S.size || this.sizes.sr].len; };
@@ -276,6 +287,10 @@
     }
     const fit = this.fitCheck(id, null);
     if (fit) { this.msg('warn', fit.key, fit.params); return false; }
+    if (id === 'guide') {
+      const af = this.accessFit(); if (af) { this.msg('warn', af.key, af.params); return false; }
+      if (this.access && this.access.sheathF && this.guideSpec().sheath && this.access.site !== 'radial') this.msg('info', 'long_sheath_exchange', { g: this.guideSpec().prod });
+    }
     if (id === 'mwire' && !D.micro.inserted) { this.warnOnce('mwnomicro', 'warn', 'mwire_no_micro'); this.selStats.mwireMisuse = (this.selStats.mwireMisuse || 0) + 1; }
     if (id === 'sr') { d.size = this.sizes.sr; d.tipLatch = false; d.unsheath = 0; d.pushOut = 0; d.fluff = 0; d.exposedAt = null; d.target = null; }
     // start just inside the innermost outer catheter tip (fast-loaded)
@@ -285,7 +300,7 @@
       const inner = outers.reduce((a, b) => (b.rank > a.rank ? b : a));
       start = Math.max(0, inner.s - (id === 'sr' ? 25 : 8));
     }
-    d.inserted = true; d.s = start; d.torque = 0; d.deployed = false; d.formed = false; d.hung = false; d.strain = 0; d.passedZone = false; d.rotT = -9;
+    d.inserted = true; d.s = start; d.torque = 0; d.dropIn = null; d.radialIn = null; d.radPush = 0; d.deployed = false; d.formed = false; d.hung = false; d.strain = 0; d.passedZone = false; d.rotT = -9;
     if (id === 'inter' || id === 'guide') d.od = this.devOD(d); d.form = 0; d.formTech = null; d.knee = 0; d.kneeMax = 0; d.over = 0;
     if (this.shapes[id]) d.shape = this.shapes[id];
     if (id !== 'sr' || !this.active) this.active = id;
@@ -310,6 +325,7 @@
     }
     if (d.id === 'sr' && (d.deployed || this.srExposed() > 0.5)) { this.msg('warn', 'sr_deployed_retrieve'); return false; }
     if (d.id === 'inter' && this.aspiration) this.setAspiration(false);
+    if (d.id === 'guide' && this.bgcInflated) { this.bgcInflated = false; this.msg('info', 'bgc_deflated'); }
     d.inserted = false; d.s = 0; d.deployed = false;
     this.time += 8;
     this.trimTrack();
@@ -341,7 +357,7 @@
   Sim.prototype.bumpFluoro = function () { this.fluoroHold = 0.45; };
 
   Sim.prototype.setShape = function (id, shape) {
-    const list = id === 'guide' ? GUIDE_SHAPES : DIAG_SHAPES;
+    const list = id === 'guide' ? this.guideSpec().shapes : DIAG_SHAPES;
     if (!list.includes(shape) || this.devices[id].inserted) return false;
     this.shapes[id] = shape; this.devices[id].shape = shape; this.emit('change'); return true;
   };
@@ -375,7 +391,7 @@
     if (kids.length === 1) return { child: kids[0] };
     const sel = this.selectorFor(d);
     const torque = torqueOverride != null ? torqueOverride : sel.dev.torque;
-    const t = A.endDir(seg), tip = A.tipDir(t, sel.A, torque);
+    const t = A.endDir(seg), tip = A.tipDir(t, sel.A, torque, sel.wire ? 'wire' : null);
     let tol = sel.tol;
     if (sel.wire && seg.r > 8) tol = 22; // a bare wire cannot reliably select an arch branch by itself
     let best = null, straight = null;
@@ -415,6 +431,10 @@
   Sim.prototype._move = function (d, ds, fast) {
     const id = d.id;
     // a straight, stiff guide (and, milder, an aspiration catheter) cannot follow a curve without a rail inside it
+    if (id === 'guide' && this.bgcInflated && Math.abs(ds) > 0) {
+      this.warnOnce('bgcmove' + Math.round(this.time / 15), 'danger', 'bgc_move_inflated');
+      this.dissRisk += Math.abs(ds) / 18; if (Math.abs(ds) > 0.05) { this.bgcInflated = false; this.msg('info', 'bgc_deflated'); }
+    }
     if (id === 'guide' || id === 'inter') {
       if (ds > 0) { const r = this.curveGate(d, ds, fast); if (r !== null) return r; }
       else if (d.wallImpact) { d.wallImpact = Math.max(0, d.wallImpact + ds * 2); if (!d.wallImpact) this.stalled = false; }
@@ -434,6 +454,8 @@
         ds *= 0.25;
       }
     }
+    if (d.dropIn && ds > 0) { const r = this.dropPush(d, ds); if (r !== null) { this.trimTrack(); return r; } }
+    if (d.dropIn && ds < 0 && d.s + ds < d.dropIn.P) { const br = this.track[d.dropIn.i]; d.dropIn = null; if (br) { this.msg('info', 'drop_out_pull', { vessel: this.seg(br).archVessel || br, dev: d.id }); this.tipPop = { S: this.trackOff[this.track.indexOf(br)], seg: br, t: this.time, kind: 'drop_out' }; } }
     if (!d._skipRev && this.isReverse(d)) { const r = this.reverseMove(d, ds, fast); if (r !== null) { this.trimTrack(); return r; } }
     const D = this.devices, before = d.s;
     if (ds < 0) {
@@ -562,11 +584,65 @@
     '074': { id: 0.074, od: 0.085, prod: 'Vecta 74' },
     '088': { id: 0.088, od: 0.110, prod: 'Zoom 88 LDP · TracStar' }
   };
-  // Guide / long sheath. 0.088" ID (Neuron MAX 088, Infinity) takes up to ~0.085" OD; a 0.088" aspiration catheter
-  // needs a large-bore sheath (>= 0.115" ID per the Zoom 88 IFU).
+  // Guide catheters / long sheaths / balloon guides. id/od in inches, len = working length (cm), fr = introducer
+  // (short sheath) size a GUIDE needs; long sheaths (sheath: true) are exchanged for the short sheath over the wire.
+  // Coaxial rule everywhere: inner OD + 0.002" <= outer ID (e.g. a 0.071" guide cannot take a 6F/0.070" aspiration
+  // catheter, a Cello 8F balloon guide (0.075") cannot take large-bore aspiration).
+  // Sources: Penumbra (Neuron MAX 088, BENCHMARK 071), Stryker (AXS Infinity LS, FlowGate2), Balt (Ballast 088 IFU /
+  // FDA K242376), Cook (Flexor Shuttle 5F 0.074" / 6F 0.087"), Cerenovus Envoy 6F (0.070"), Medtronic/Fuji Cello
+  // (8F 0.075"/0.102", 9F 0.085"/0.118"), Q'Apel Walrus (0.087"/0.110"), Medtronic Rist 071/079 (radial).
   const GUIDE_SIZES = {
-    '088': { id: 0.088, od: 0.113, prod: '8F guide / 088 long sheath' },
-    '115': { id: 0.115, od: 0.131, prod: 'Large-bore long sheath 0.115"' }
+    '088': { id: 0.088, od: 0.109, len: 90, prod: 'Neuron MAX 088 (6F long sheath)', shapes: ['str', 'mpd'], sheath: true, fr: 6 },
+    'inf088': { id: 0.088, od: 0.105, len: 80, prod: 'AXS Infinity LS (088 long sheath)', shapes: ['str'], sheath: true, fr: 6 },
+    'bal088': { id: 0.088, od: 0.106, len: 90, prod: 'Ballast 088 long sheath', shapes: ['str'], sheath: true, fr: 6 },
+    'shut6': { id: 0.087, od: 0.105, len: 90, prod: 'Cook Shuttle 6F (0.087")', shapes: ['str', 'mpd', 'h1g'], sheath: true, fr: 6 },
+    'shut5': { id: 0.074, od: 0.092, len: 90, prod: 'Cook Shuttle 5F (0.074")', shapes: ['str', 'mpd'], sheath: true, fr: 5 },
+    'bmk071': { id: 0.071, od: 0.083, len: 95, prod: 'BENCHMARK 071 (6F guide)', shapes: ['str', 'mpd'], fr: 6 },
+    'env6': { id: 0.070, od: 0.083, len: 100, prod: 'Envoy 6F (0.070")', shapes: ['mpc', 'mpd', 'str', 'h1g'], fr: 6 },
+    'cello8': { id: 0.075, od: 0.102, len: 95, prod: 'Cello 8F balloon guide', shapes: ['str'], bgc: true, fr: 8 },
+    'cello9': { id: 0.085, od: 0.118, len: 92, prod: 'Cello 9F balloon guide', shapes: ['str'], bgc: true, fr: 9 },
+    'fg2': { id: 0.084, od: 0.106, len: 95, prod: 'FlowGate2 8F balloon guide', shapes: ['str'], bgc: true, fr: 8 },
+    'walrus': { id: 0.087, od: 0.110, len: 95, prod: 'Walrus 8F+ balloon guide', shapes: ['str'], bgc: true, fr: 8 },
+    'rist071': { id: 0.071, od: 0.087, len: 105, prod: 'Rist 071 radial guide (6F)', shapes: ['str'], radial: true, fr: 6 },
+    'rist079': { id: 0.079, od: 0.093, len: 105, prod: 'Rist 079 radial guide (7F)', shapes: ['str'], radial: true, fr: 7 },
+    '115': { id: 0.115, od: 0.131, len: 90, prod: 'Large-bore 0.115" long sheath', shapes: ['str'], sheath: true, fr: 10 }
+  };
+  Sim.prototype.guideSpec = function () { return GUIDE_SIZES[this.sizes.guide] || GUIDE_SIZES['088']; };
+  // short (introducer) sheath / radial slender sheath from the access phase: can it take the chosen guide?
+  Sim.prototype.accessFit = function () {
+    const a = this.access, g = this.guideSpec();
+    if (!a || !a.sheathF) return null;
+    if (a.site === 'radial') {
+      if (g.sheath || g.fr > 7 || g.bgc) return { key: 'radial_guide_too_big', params: { g: g.prod } };
+      if (g.fr > a.sheathF) return { key: 'guide_needs_sheath', params: { g: g.prod, f: g.fr, have: a.sheathF } };
+      return null;
+    }
+    if (g.sheath) return null; // long sheath: exchanged for the short sheath over the 0.035" wire
+    if (g.fr > a.sheathF) return { key: 'guide_needs_sheath', params: { g: g.prod, f: g.fr, have: a.sheathF } };
+    return null;
+  };
+  // ---- balloon guide catheter: proximal flow arrest ----
+  Sim.prototype.setBalloon = function (on) {
+    const G = this.devices.guide, g = this.guideSpec();
+    if (!on) { if (this.bgcInflated) { this.bgcInflated = false; this.msg('info', 'bgc_deflated'); this.emit('change'); } return true; }
+    if (!G.inserted || !g.bgc) { this.msg('warn', 'bgc_none'); return false; }
+    const seg = this.locate(G.s).seg;
+    if (seg.aortic) { this.msg('danger', 'bgc_in_aorta'); return false; }
+    if (2 * seg.r > 11.5) { this.msg('warn', 'bgc_too_wide'); return false; }
+    if (this.bgcInflated) return true;
+    this.bgcInflated = true; this.bgcT0 = this.time; this.bgcLongWarned = false;
+    this.msg('good', 'bgc_inflated', { seg: seg.id }); this.bumpFluoro(); this.emit('change');
+    return true;
+  };
+  // result of the access phase: time spent, complications and the sheath that now limits the guide choice
+  Sim.prototype.applyAccess = function (res) {
+    if (!res) return;
+    this.access = res; this.archOpts.accessResult = res;
+    this.time += res.time || 0;
+    (res.comps || []).forEach(c => this.addComplication(c));
+    this.msg('good', 'acc_summary', { site: res.site, f: res.sheathF, s: res.score });
+    const af = this.accessFit(); if (af && !this.devices.guide.inserted) this.msg('warn', af.key, af.params);
+    this.emit('change');
   };
   Sim.prototype.boreFactor = function () { return Math.pow(ASP_SIZES[this.sizes.asp].id / 0.071, 2); };
   // the ophthalmic origin on the current track (end of the cavernous/petrous ICA segment, start of the supraclinoid ICA)
@@ -706,6 +782,7 @@
   // movement rules for Simmons 2 / Vitek; returns null to fall through to the generic coaxial rules
   Sim.prototype.reverseMove = function (d, ds, fast) {
     const R = REV[d.shape], W = this.devices.wire, loc = this.locate(d.s);
+    if (d.radialIn) { if (this.track.indexOf(d.radialIn) < 0 || d.s < this.offsetOf(d.radialIn)) d.radialIn = null; else return null; }
     const wireAhead = W.inserted && W.s > d.s + 2;
     if (!d.formed) {
       if (d.shape !== 'sim2' || ds <= 0 || wireAhead) return null;
@@ -764,6 +841,27 @@
       if (d.s <= J.P + 0.5) this.freeLoop(d, J);
       return ds;
     }
+    // RIGHT RADIAL: the catheter comes down the brachiocephalic trunk; a loop formed in the ascending aorta has its
+    // tip trailing near the BCA origin, pointing back along the arch. Torque the hook toward the target (Aim) and
+    // ADVANCE gently: the loop slides down the ascending aorta and the tip sweeps along the arch roof into the
+    // origin (LCCA, or LSA). Simplified model of the transradial Simmons/Vitek technique.
+    if (this.anat.access === 'radial' && ds > 0 && !wireAhead && loc.seg.id === 'ascAorta') {
+      const tg = this.revTarget(d);
+      d.radPush = (d.radPush || 0) + ds;
+      d.s = Math.min(this.trackLen - 2, d.s + ds * 0.5);
+      if (tg && tg.err <= 40 && d.radPush >= 12) {
+        const oldEnd = this.offsetOf('ascAorta');
+        this.setTrackTo(tg.k);
+        DEVICE_ORDER.forEach(id => { const o = this.devices[id]; if (o.inserted && o !== d && o.s > oldEnd) o.s = oldEnd; });
+        d.s = this.offsetOf(tg.k) + 6; d.radPush = 0; d.radialIn = tg.k;
+        d.formed = false; d.form = 0; d.formTech = null; d.knee = 0;
+        const v = this.seg(tg.k).archVessel || tg.k;
+        this.msg('good', 'radial_hook_engaged', { vessel: v, dev: d.id });
+        this.tipPop = { S: this.offsetOf(tg.k), seg: tg.k, t: this.time, kind: 'drop_in' };
+        this.bumpFluoro(); this.emit('change'); this.emit('drop', { vessel: v, kind: 'drop_in' });
+      } else if (d.radPush > 40) this.warnOnce('radhook' + Math.round(this.time / 20), 'tip', 'radial_hook_aim');
+      return ds;
+    }
     // free formed loop: the knee leads along the aorta (it never enters a branch)
     if (ds < 0 || wireAhead) return null;
     for (let i = 1; i < this.track.length; i++) {
@@ -782,11 +880,34 @@
 
   // Gentle pull-back with the tip aimed at an origin: the tip "pops" into it. Shaped (Vert/Bern/H1) tips catch the
   // ostium they are rotated toward; a formed Simmons/Vitek tip trails `reach` mm behind the knee.
+  // Simple curves (Vert / Bern / H1) - continuous "drop-in" physics: with the curve free (wire withdrawn behind it)
+  // and the tip torqued toward the arch roof, the tip drags along the roof while the catheter is pulled back and
+  // falls into each origin it passes when the curve can actually point into it (DROP_TOL above the shape's
+  // tolerance). Slightly too steep a take-off: the tip catches and flips straight out again. Much too steep (e.g. a
+  // type III arch for a Vert, the LCCA limb of a bovine trunk): it slides past. Further pull or a small push pops it
+  // back out into the arch, where it can drop into the next origin.
+  const DROP_TOL = 10, FLIP_TOL = 22, DROP_DEPTH = 3, ROOF_TOL = 40;
+  Sim.prototype.roofErr = function (d) {
+    const loc = this.locate(d.s), t = { x: loc.tx, y: loc.ty, z: loc.tz };
+    const n = A.tipDir(t, 90, 0).d, r = A.tipDir(t, 90, d.torque).d;
+    return A.angleBetween(n, r);
+  };
+  Sim.prototype.simpleCurve = function (d) { return d.id === 'diag' && ['vert', 'bern', 'h1'].includes(d.shape); };
+  Sim.prototype.dropCandidates = function (d, i) {
+    const parent = this.seg(this.track[i - 1]), sh = SHAPES[d.shape], t = A.endDir(parent), tip = A.tipDir(t, sh.A, d.torque);
+    return parent.children.filter(k => k !== this.track[i] && !this.seg(k).aortic)
+      .map(k => ({ k, err: A.angleBetween(tip, A.startDir(this.seg(k))) })).sort((x, y) => x.err - y.err);
+  };
   Sim.prototype.pullEngage = function (d, ds) {
     if (d.id !== 'diag' || !d.shape) return false;
     const rev = this.isReverse(d);
-    if (rev ? !d.formed : !['vert', 'bern', 'h1'].includes(d.shape)) return false;
-    const W = this.devices.wire; if (W.inserted && W.s > d.s - 3) return false;
+    if (rev ? !d.formed : !this.simpleCurve(d)) return false;
+    const W = this.devices.wire;
+    if (!rev && W.inserted && W.s > d.s - 10) {
+      if (this.locate(d.s).seg.aortic && this.roofErr(d) <= ROOF_TOL) this.warnOnce('dropwire' + Math.round(this.time / 20), 'tip', 'drop_wire_in_curve');
+      return false;
+    }
+    if (W.inserted && W.s > d.s - 3) return false;
     if (rev && this.engagedJunction(d)) return false;
     const reach = rev ? REV[d.shape].reach : 0, sh = SHAPES[d.shape], tgt = rev ? this.revTarget(d) : null;
     if (rev && !tgt) return false;
@@ -795,22 +916,57 @@
       const P = this.trackOff[i];
       if (!(P < tOld && P >= tNew)) continue;
       const parent = this.seg(this.track[i - 1]); if (!parent.aortic) continue;
-      const t = A.endDir(parent), tip = A.tipDir(t, sh.A, d.torque);
       let best = null;
       if (rev) { if (parent.children.includes(tgt.k) && tgt.k !== this.track[i]) best = { k: tgt.k, err: tgt.err }; }
-      else parent.children.forEach(k => { if (k === this.track[i] || this.seg(k).aortic) return; const err = A.angleBetween(tip, A.startDir(this.seg(k))); if (err <= sh.tol && (!best || err < best.err)) best = { k, err }; });
+      else {
+        if (!this.seg(this.track[i]).aortic) continue; // withdrawing out of a branch, not passing an ostium
+        const c = this.dropCandidates(d, i)[0];
+        if (!c) continue;
+        const v = this.seg(c.k).archVessel || c.k;
+        if (c.err > sh.tol + DROP_TOL) {
+          if (this.roofErr(d) <= ROOF_TOL || c.err <= sh.tol + FLIP_TOL) {
+            const key = c.err <= sh.tol + FLIP_TOL ? 'drop_flip' : 'drop_slide';
+            this.selStats.shapeStall++;
+            this.tipPop = { S: P, seg: c.k, t: this.time, kind: key };
+            this.msg(key === 'drop_flip' ? 'warn' : 'info', key, { vessel: v, dev: d.id });
+            this.bumpFluoro(); this.emit('drop', { vessel: v, kind: key });
+          }
+          continue;
+        }
+        best = c;
+      }
       if (!best) continue;
       if (DEVICE_ORDER.some(id => { const o = this.devices[id]; return o.inserted && o.rank < d.rank && o.s > P; })) continue;
       DEVICE_ORDER.forEach(id => { const o = this.devices[id]; if (o.inserted && o !== d && o.s > P) o.s = P; });
       const kneeNew = d.s + ds - P;
       this.track = this.track.slice(0, i).concat([best.k]); this.rebuildTrack();
-      if (rev) { d.knee = Math.max(8, kneeNew); d.kneeMax = Math.max(d.knee, d.kneeMax || 0); d.s = P + 4; } else d.s = P + 3;
+      if (rev) { d.knee = Math.max(8, kneeNew); d.kneeMax = Math.max(d.knee, d.kneeMax || 0); d.s = P + 4; }
+      else { d.s = P + DROP_DEPTH; d.dropIn = { i, P, push: 0 }; this.tipPop = { S: P, seg: best.k, t: this.time, kind: 'drop_in' }; }
       const v = this.seg(best.k).archVessel || best.k;
-      this.msg('good', rev && d.shape === 'sim2' ? 'sim2_engaged' : 'cath_engaged', { vessel: v, dev: d.id });
-      this.bumpFluoro(); this.emit('change');
+      this.msg('good', rev && d.shape === 'sim2' ? 'sim2_engaged' : rev ? 'cath_engaged' : 'drop_in', { vessel: v, dev: d.id });
+      this.bumpFluoro(); this.emit('change'); this.emit('drop', { vessel: v, kind: 'drop_in' });
       return true;
     }
     return false;
+  };
+  // A simple curve that dropped into an ostium sits only a few mm deep: a small push (without a wire leading into the
+  // vessel) transmits to the curve in the arch and flips the tip back out, beyond the origin.
+  Sim.prototype.dropPush = function (d, ds) {
+    const J = d.dropIn; if (!J || ds <= 0) return null;
+    const W = this.devices.wire, br = this.track[J.i];
+    if (!br || this.trackOff[J.i] !== J.P || this.seg(br).aortic || d.s < J.P) { d.dropIn = null; return null; }
+    if (W.inserted && W.s > d.s + 5) { if (d.s + ds - J.P > 12) d.dropIn = null; return null; } // over a wire: tracks in
+    J.push += ds;
+    if (J.push < 3) return 0;
+    // pop out: tip back into the arch, just beyond the origin (toward the ascending aorta)
+    const parent = this.seg(this.track[J.i - 1]), ao = parent.children.find(k => this.seg(k).aortic);
+    this.track = this.track.slice(0, J.i).concat(ao ? [ao] : []); this.rebuildTrack();
+    d.s = Math.min(this.trackLen, J.P + 4); d.dropIn = null;
+    DEVICE_ORDER.forEach(id => { const o = this.devices[id]; if (o.inserted && o !== d && o.rank > d.rank && o.s > d.s) o.s = Math.min(o.s, J.P); });
+    this.msg('info', 'drop_out_push', { vessel: this.seg(br).archVessel || br, dev: d.id });
+    this.tipPop = { S: J.P, seg: br, t: this.time, kind: 'drop_out' };
+    this.bumpFluoro(); this.emit('change');
+    return ds;
   };
   // A reverse loop's tip hooks upward/backward; pulling the loop changes the hook angle (90-140 deg to the aortic axis),
   // so rotation chooses WHICH arch branch it will catch: the branch best aligned with the hooked tip.
@@ -822,12 +978,14 @@
   };
   Sim.prototype.revTarget = function (d) {
     let best = null;
-    this.anat.list.forEach(p => { if (!p.aortic || p.id === 'abdAorta' || p.id === 'rIliac') return; p.children.forEach(k => { const c = this.seg(k); if (c.aortic) return; const e = this.hookErr(p, c, d.torque); if (!best || e < best.err) best = { k, p: p.id, err: e }; }); });
+    const radialEntry = p => this.anat.access === 'radial' && p.children.includes('ascAorta');
+    this.anat.list.forEach(p => { if ((!p.aortic && !radialEntry(p)) || p.id === 'abdAorta' || p.id === 'rIliac') return; p.children.forEach(k => { const c = this.seg(k); if (c.aortic) return; const e = this.hookErr(p, c, d.torque); if (!best || e < best.err) best = { k, p: p.id, err: e }; }); });
     return best && best.err <= 45 ? best : null;
   };
   Sim.prototype.shapePhase = function () {
     const d = this.devices.diag; if (!d.inserted || !this.isReverse(d)) return null;
     const J = this.engagedJunction(d);
+    if (d.radialIn) return 'radial_in';
     if (d.shape === 'vtk') return d.formed ? (J && d.knee > 1.5 ? 'engaged' : 'formed') : 'vtk_unformed';
     if (d.formed) return J && d.knee > 1.5 ? 'engaged' : 'formed';
     if (d.form > 0 && d.formTech) return 'forming';
@@ -884,11 +1042,28 @@
       const tg = this.revTarget(d); return { mode: 'hook', vessel: tg ? name(tg.k) : null, good: !!tg && tg.err <= 30 };
     }
     if (d.kind !== 'wire' && d.id !== 'diag') return null;
+    const dp = this.dropPreview(d); if (dp) return dp;
     if (this.innerDevices(d).some(o => o.s > d.s + 1)) return null; // something else leads
     const loc = this.locate(d.s); if (loc.i !== this.track.length - 1) return null;
     const seg = loc.seg; if (seg.len - loc.local > 70 || seg.children.length < 2) return null;
     const ch = this.chooseChild(d, seg); if (!ch.child) return { mode: 'next', vessel: null };
     return { mode: 'next', vessel: name(ch.child), good: !ch.struggle, struggle: !!ch.struggle };
+  };
+  // Simple curve in the arch: which origin the tip will fall into on the next gentle pull-back (or is sitting in)
+  Sim.prototype.dropPreview = function (d) {
+    if (!this.simpleCurve(d)) return null;
+    const loc = this.locate(d.s);
+    if (d.dropIn && !loc.seg.aortic) return { mode: 'in', vessel: loc.seg.archVessel || loc.seg.id, good: true, roof: true };
+    if (!loc.seg.aortic || /^(rIliac|abdAorta)$/.test(loc.seg.id)) return null;
+    const roof = this.roofErr(d) <= ROOF_TOL, sh = SHAPES[d.shape];
+    for (let i = loc.i; i >= 1; i--) {
+      const P = this.trackOff[i]; if (P >= d.s) continue;
+      if (!this.seg(this.track[i - 1]).aortic || !this.seg(this.track[i]).aortic) continue;
+      const c = this.dropCandidates(d, i)[0]; if (!c) continue;
+      const v = this.seg(c.k).archVessel || c.k;
+      return { mode: 'drop', vessel: v, good: c.err <= sh.tol + DROP_TOL, flip: c.err > sh.tol + DROP_TOL && c.err <= sh.tol + FLIP_TOL, roof, dist: d.s - P, err: Math.round(c.err) };
+    }
+    return null;
   };
   // forming progress for the hint panel: guidewire position relative to the catheter tip / curve
   Sim.prototype.shapeInfo = function () {
@@ -1037,7 +1212,7 @@
         const p = 0.035 * moved * f * (d.id === 'wire' ? 3 : 1);
         if (rnd() < p) this.perforate(loc, 'small');
       }
-      if (d.id === 'wire' && (seg.intracranial || seg.r < 2.0)) {
+      if (d.id === 'wire' && (seg.intracranial || (seg.r < 2.0 && !seg.arm))) {
         this.warnOnce('std_ic', 'warn', 'std_wire_ic');
         if (rnd() < 0.012 * moved * f) this.perforate(loc, 'stdwire');
       }
@@ -1050,7 +1225,7 @@
         this.dissRisk += moved * f * ratio / 45;
         this.warnOnce('unsup' + d.id, 'warn', 'unsupported', { dev: d.id });
       }
-      this.spasm += moved * Math.max(0, ratio - 0.5) * 0.015;
+      this.spasm += moved * Math.max(0, ratio - 0.5) * 0.015 * (seg.arm ? (this.access && this.access.cocktail ? 0.25 : 1.5) : 1);
     }
     if (this.dissRisk > 0.5) this.warnOnce('dissw', 'warn', 'dissection_risk');
     if (this.dissRisk >= 1) {
@@ -1219,6 +1394,13 @@
       frag = (1 - p) * 0.45 * (q.asp ? 0.7 : 1.2) + Math.min(0.1, (q.pushOut || 0) / 100);
       ent = q.solumbra ? 0.02 : q.asp ? 0.04 : 0.1;
     }
+    // balloon guide: proximal flow arrest during the pass (inflated in the cervical ICA/CCA) - less distal embolization,
+    // higher first-pass success; a balloon guide left deflated loses that benefit
+    const g = this.guideSpec(), G = this.devices.guide;
+    if (g.bgc && G.inserted) {
+      if (this.bgcInflated) { p = clamp(p + 0.08, 0.02, 0.88); frag *= 0.6; ent *= 0.5; notes.push('fb_bgc_arrest'); this.bgcPasses = (this.bgcPasses || 0) + 1; }
+      else notes.push('fb_bgc_not_inflated');
+    }
     let result = 'fail';
     if (clot) {
       const r = rnd();
@@ -1295,6 +1477,7 @@
     this.run = { t: 0, fill, dur: Math.min(8, maxD / FLOW_V + 3.4), roadmapCapture, via: dev.id, vol, srcSeg: loc.seg.id };
     this.lastRun = this.run;
     this.msg('info', roadmapCapture ? 'roadmap_puff' : 'dsa_run', { vol, dev: dev.id });
+    if (this.bgcInflated && dev.id === 'guide') this.msg('tip', 'bgc_inject_stasis');
     this.emit('run');
     return true;
   };
@@ -1426,6 +1609,7 @@
         }
       }
     }
+    if (this.bgcInflated && this.time - this.bgcT0 > 300 && !this.bgcLongWarned) { this.bgcLongWarned = true; this.msg('warn', 'bgc_long'); }
     this.tickPhysiology(dt);
     this.updateShapes(dt);
     this.trackSelections();

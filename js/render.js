@@ -166,6 +166,16 @@
     }
     ctx.fillStyle = `rgba(30,30,30,${0.15 * a})`;
     [[392, 930, 0], [608, 930, 0]].forEach(q => { const p = P(q[0], q[1], q[2]); ctx.beginPath(); ctx.arc(p.x, p.y, 28, 0, 7); ctx.fill(); });
+    // right arm (radial access): humerus, radius + ulna, carpal bones
+    if (this.sim.anat.access === 'radial') {
+      ctx.strokeStyle = `rgba(30,30,30,${0.2 * a})`; ctx.lineCap = 'round';
+      const ln = (pts, w) => { ctx.lineWidth = w; ctx.beginPath(); pts.forEach((q, i) => { const p = P(q[0], q[1], q[2]); i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y); }); ctx.stroke(); };
+      ln([[300, 318, -12], [262, 380, -8], [232, 460, -4], [214, 535, 0]], 20);
+      ln([[214, 552, 4], [205, 640, 10], [198, 770, 20]], 10);
+      ln([[228, 548, -2], [222, 650, 6], [216, 772, 14]], 9);
+      ctx.fillStyle = `rgba(30,30,30,${0.18 * a})`;
+      [[196, 792], [212, 790], [228, 794], [204, 808], [220, 810]].forEach(q => { const p = P(q[0], q[1], 18); ctx.beginPath(); ctx.arc(p.x, p.y, 6.5, 0, 7); ctx.fill(); });
+    }
     // skull, skull base, orbits, mandible
     const SK = this.sim.anat.skull, sk = P(SK.cx, SK.cy, SK.cz);
     ctx.strokeStyle = `rgba(25,25,25,${0.30 * a})`; ctx.lineWidth = 10;
@@ -410,14 +420,14 @@
     ctx.stroke();
   };
   // draw a curved tip in 3D (bending from the tangent toward the roll direction) and project it
-  Renderer.prototype.curl3D = function (loc, A, L, torque, widthMm, minPx, alpha) {
+  Renderer.prototype.curl3D = function (loc, A, L, torque, widthMm, minPx, alpha, frame) {
     const ctx = this.ctx, t = { x: loc.tx, y: loc.ty, z: loc.tz };
     const N = Math.max(8, Math.round(Math.abs(A) / 12));
     let x = loc.x, y = loc.y, z = loc.z;
     ctx.strokeStyle = `rgba(0,0,0,${alpha})`; ctx.lineWidth = Math.max(widthMm, this.px(minPx));
     ctx.beginPath(); let q = this.P({ x, y, z }); ctx.moveTo(q.x, q.y);
     for (let k = 1; k <= N; k++) {
-      const d = NIR.anatomy.tipDir(t, A * (k - 0.5) / N, torque);
+      const d = NIR.anatomy.tipDir(t, A * (k - 0.5) / N, torque, frame);
       x += d.x * L / N; y += d.y * L / N; z += d.z * L / N;
       q = this.P({ x, y, z }); ctx.lineTo(q.x, q.y);
     }
@@ -430,7 +440,7 @@
     let A = tip === 'angled' ? 45 : tip === 'shaped' ? 50 : sim.stalled ? 150 : 120;
     let L = Math.min(micro ? 2.6 : tip === 'angled' ? 4 : 6, 1.6 * loc.seg.r);
     if (loc.seg.r < 1.2) A *= 0.6;
-    this.curl3D(loc, A, L, W.torque, sim.wireOD(W.id) * 1.2, micro ? 1.6 : 2, 0.98);
+    this.curl3D(loc, A, L, W.torque, sim.wireOD(W.id) * 1.2, micro ? 1.6 : 2, 0.98, 'wire');
   };
   Renderer.prototype.drawCathTip = function (d) {
     const sim = this.sim;
@@ -478,6 +488,28 @@
       ctx.stroke(); });
   };
 
+  // balloon-guide balloon (contrast/saline-filled ellipse just behind the guide tip) and the drop-in "pop" ring
+  Renderer.prototype.drawExtras = function () {
+    const sim = this.sim, ctx = this.ctx, G = sim.devices.guide;
+    if (sim.bgcInflated && G.inserted && G.s > 12) {
+      const S = G.s - 6, a = this.P(sim.locate(S - 3)), b = this.P(sim.locate(S + 3)), seg = sim.locate(S).seg;
+      const ang = Math.atan2(b.y - a.y, b.x - a.x), r = Math.min(seg.r * 0.98, 5);
+      ctx.save(); ctx.translate((a.x + b.x) / 2, (a.y + b.y) / 2); ctx.rotate(ang);
+      ctx.fillStyle = 'rgba(25,25,25,0.55)'; ctx.strokeStyle = 'rgba(0,0,0,0.85)'; ctx.lineWidth = this.px(1.2);
+      ctx.beginPath(); ctx.ellipse(0, 0, 5.5, r, 0, 0, 7); ctx.fill(); ctx.stroke(); ctx.restore();
+    }
+    const tp = sim.tipPop;
+    if (tp !== this._tp) { this._tp = tp; this._tpT = performance.now(); }
+    if (tp && tp.seg && sim.seg(tp.seg) && !this.inset) {
+      const age = (performance.now() - this._tpT) / 900;
+      if (age < 1) {
+        const p = this.P(NIR.anatomy.pointAt(sim.seg(tp.seg), 0));
+        const col = tp.kind === 'drop_in' ? '124,252,154' : tp.kind === 'drop_flip' ? '255,207,107' : tp.kind === 'drop_slide' ? '255,154,107' : '159,211,255';
+        ctx.save(); ctx.strokeStyle = `rgba(${col},${(1 - age).toFixed(3)})`; ctx.lineWidth = this.px(2.5);
+        ctx.beginPath(); ctx.arc(p.x, p.y, this.px(10 + 26 * age), 0, 7); ctx.stroke(); ctx.restore();
+      }
+    }
+  };
   Renderer.prototype.draw = function (dt) {
     const ctx = this.ctx;
     this.resize(); this.frame++;
@@ -518,6 +550,7 @@
     this.drawStains();
     this.drawRun();
     this.drawDevices();
+    this.drawExtras();
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     // quantum noise
     if (!this._pat || this._patCtx !== ctx) { this._pat = ctx.createPattern(this.noise, 'repeat'); this._patCtx = ctx; }
@@ -567,12 +600,12 @@
     if (cv.width !== Wc || cv.height !== Hc) { cv.width = Wc; cv.height = Hc; }
     const g = cv.getContext('2d'), t = NIR.i18n.t, S = NIR.shapes;
     g.setTransform(1, 0, 0, 1, 0, 0); g.direction = 'ltr'; g.fillStyle = '#0d141b'; g.fillRect(0, 0, Wc, Hc);
-    const ids = ['vert', 'h1', 'vtk', 'sim2'], shaft = 25;
+    const ids = ['bern', 'vert', 'h1', 'vtk', 'sim2'], shaft = 25;
     const shapes = ids.map(id => { const f = S.freeShape(id, { bend: 1, knee: 1 }); const pts = [{ a: -shaft, l: 0 }].concat(f.pts); return { id, f, pts }; });
     // common scale so relative sizes are true
     let maxA = 0, maxL = 0;
     shapes.forEach(sh => { const as = sh.pts.map(p => p.a), ls = sh.pts.map(p => p.l); maxA = Math.max(maxA, Math.max(...as) - Math.min(...as)); maxL = Math.max(maxL, Math.max(...ls) - Math.min(...ls, 0)); });
-    const cols = 4, cw = Wc / cols, top = 24 * dpr, bot = 40 * dpr;
+    const cols = ids.length, cw = Wc / cols, top = 24 * dpr, bot = 40 * dpr;
     const sc = Math.min((Hc - top - bot) / (maxA + 6), (cw - 16 * dpr) / (maxL + 12));
     shapes.forEach((sh, i) => {
       const as = sh.pts.map(p => p.a), ls = sh.pts.map(p => p.l), aMin = Math.min(...as), aMax = Math.max(...as), lMin = Math.min(...ls, 0), lMax = Math.max(...ls);
@@ -591,10 +624,10 @@
       g.beginPath(); sh.pts.forEach((p, j) => j ? g.lineTo(X(p), Y(p)) : g.moveTo(X(p), Y(p))); g.stroke();
       const tp = sh.pts[sh.pts.length - 1]; g.fillStyle = '#ffd54a'; g.beginPath(); g.arc(X(tp), Y(tp), Math.max(2.5, 1.2 * sc), 0, 7); g.fill();
       g.fillStyle = '#cfe8ff'; g.font = `bold ${Math.round(12 * dpr)}px system-ui, sans-serif`; g.textAlign = 'center'; g.textBaseline = 'top';
-      g.fillText({ vert: 'Vert', h1: 'H1', vtk: 'VTK', sim2: 'Sim 2' }[sh.id], i * cw + cw / 2, 6 * dpr);
+      g.fillText({ bern: 'Bern', vert: 'Vert', h1: 'H1', vtk: 'VTK', sim2: 'Sim 2' }[sh.id], i * cw + cw / 2, 6 * dpr);
       const dsc = S.describe(sh.id); g.font = `${Math.round(10 * dpr)}px system-ui, sans-serif`; g.fillStyle = '#9fb3c8'; g.textBaseline = 'bottom';
-      const l1 = dsc.kneeTurn ? (dsc.kneeTurn + '° knee') : (Math.round(dsc.tipAngle) + '° tip');
-      const l2 = dsc.kneeTurn ? (Math.round(dsc.limb) + ' mm · ⌀' + Math.round(dsc.loopWidth)) : (sh.id === 'h1' ? dsc.tipStraight + ' mm tip' : Math.round(dsc.angledSegment) + ' mm');
+      const l1 = dsc.hookAngle ? (dsc.hookAngle + '° hook') : dsc.kneeTurn ? (dsc.kneeTurn + '° knee') : (Math.round(dsc.tipAngle) + '° tip');
+      const l2 = dsc.hookAngle ? (Math.round(dsc.limb) + ' mm limb') : dsc.kneeTurn ? (Math.round(dsc.limb) + ' mm · ⌀' + Math.round(dsc.loopWidth)) : (sh.id === 'h1' ? dsc.tipStraight + ' mm tip' : Math.round(dsc.angledSegment) + ' mm');
       g.fillText(l1, i * cw + cw / 2, Hc - 17 * dpr); g.fillText(l2, i * cw + cw / 2, Hc - 5 * dpr);
     });
     // 1 cm scale bar

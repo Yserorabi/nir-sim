@@ -19,6 +19,9 @@
       pen += danger ? 10 : 4; fb.push('fb_unsup_guide');
     }
     if (has('ent')) { pen += 15; fb.push('fb_ent'); }
+    // access phase (if it was done): a quarter of its shortfall counts against the case, with its own feedback
+    if (sim.access && sim.access.score != null) { pen += Math.round((100 - sim.access.score) * 0.25); (sim.access.fb || []).forEach(k => fb.push(k)); }
+    if (sim.bgcPasses) fb.push('fb_bgc_used');
     if (has('vasospasm')) { pen += 5; fb.push('fb_spasm'); }
     if (sim.bloodLoss > 150) { pen += 5; fb.push('fb_blood'); }
     // wrong wire for the job: microwire used as a rail for big catheters / guidewire taken intracranially

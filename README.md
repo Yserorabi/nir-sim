@@ -25,7 +25,7 @@ Everything (code, styles) is local plain HTML/JS/Canvas — no external librarie
   to a single plane.
 
 ## Catheters and shapes
-Guide / long sheath (**0.088"** 8F guide/088 sheath, or **0.115"** large-bore sheath; MPD or H1 shape), **5F selective
+Guide / long sheath / balloon guide (product catalogue with real ID/OD/length — see *Guide catheters* below), **5F selective
 catheter** (ID .040" — takes a 0.038" wire; Vert, Berenstein, Headhunter H1, Vitek/VTK, Simmons 2, Pigtail), aspiration catheter (bore
 selectable, see below), 0.035"/0.038" guidewire (angled, J, or 300 cm stiff exchange; see below).
 * **Aspiration catheter bore** (real ID / distal OD): 0.043" RED 43 (.060") · 0.054" JET D / Sofia 5F (.068") ·
@@ -96,6 +96,86 @@ selectable, see below), 0.035"/0.038" guidewire (angled, J, or 300 cm stiff exch
 * Milder rule for the **aspiration catheter** outside the guide in the arch: needs a guidewire or microcatheter ≥2 cm
   ahead; otherwise it stalls against the wall (dissection only, never perforation). Inside the guide it is supported.
 * Scoring: unsupported push −4 (−10 if it reached DANGER), aortic dissection −30, aortic perforation −80 + case stop.
+
+## Guide catheters, balloon guides, access, pull-back selection (v8)
+**Guide menu** (device panel, guide row): each entry shows the product, ID, OD and working length; the shape list
+changes with the product.
+
+| Product | ID / OD (inch) | Length | Shapes | Notes |
+|---|---|---|---|---|
+| Neuron MAX 088 | .088 / .109 | 90 cm | straight, MPD | long sheath (exchanged for the short sheath) |
+| AXS Infinity LS | .088 / .105 | 80 cm | straight | long sheath |
+| Ballast 088 | .088 / .106 | 90 cm | straight | long sheath |
+| Cook Shuttle 6F / 5F | .087 / .105 · .074 / .092 | 90 cm | straight, MPD (6F also H1) | the real IDs are .087"/.074" (often called "088/071") |
+| BENCHMARK 071 | .071 / .083 | 95 cm | straight, MPD | 6F guide |
+| Envoy 6F | .070 / .083 | 100 cm | MPC, MPD, straight, H1 | 6F guide |
+| Cello 8F / 9F | .075 / .102 · .085 / .118 | 95 / 92 cm | straight | balloon guide |
+| FlowGate2 | .084 / .106 | 95 cm | straight | balloon guide |
+| Walrus | .087 / .110 | 95 cm | straight | balloon guide |
+| Rist 071 / 079 | .071 / .087 · .079 / .093 | 105 cm | straight | radial guides (6F / 7F) |
+| Large-bore sheath | .115 / .131 | 90 cm | straight | for 0.088" aspiration |
+
+Coaxial fit uses the real IDs (inner OD + 0.002" ≤ outer ID). For example, a BENCHMARK 071 or Envoy 6F will not take a 0.071" aspiration
+catheter, a Cello 8F (.075") takes only ≤0.054" aspiration, and 088 / Walrus guides take a 071.
+The guide must also fit the **access sheath**: guides need an introducer ≥ their French size, and balloon guides need 8–9F.
+Radial access with a slender sheath refuses long sheaths, balloon guides and anything over 7F.
+
+**Balloon guide (Cello, FlowGate2, Walrus):** key **O**, the *Balloon* button in the guide row, or **Balloon** on the touch pad.
+* It inflates only in the cervical ICA/CCA (refused in the aorta) and gives proximal flow arrest.
+* A pass made while it is inflated has better success odds, fewer fragments and half the emboli to new territory.
+* Moving the guide while inflated warns you (dissection risk) and deflates it.
+* Injecting while inflated shows contrast stasis.
+* You get a warning after 5 minutes inflated.
+* The debrief notes flow-arrest use, or a balloon guide left deflated.
+
+**Access phase** (header **Access**: Femoral / Radial / Skip; saved; `?access=skip` in the URL skips it). It runs before the case:
+
+*Femoral (right CFA):*
+1. **AP fluoro of the hip.** Move the hemostat marker with **↑/↓ ←/→** (touch: ◀ ▲ ▼ ▶ hold buttons) onto the middle of the femoral head, below the inguinal ligament.
+   Press **Enter/Space** (or *Mark here*).
+2. **Ultrasound (transverse), 21G needle.** Aim with **←/→** (only possible at the skin), then advance with **↑** and withdraw with **↓**.
+   * Bright pulsatile flash = artery. Dark blood = vein (re-aim laterally).
+   * Going through the back wall = hematoma risk.
+   * Confirm with the tip in the centre of the lumen. A tip at the lumen edge makes the wire meet resistance.
+3. **0.018" wire.** Hold **↑**. If it meets resistance, do not force it (forcing for over 1.2 s causes a dissection); press **Backspace**/*Back to needle* to re-needle.
+4. **4F micropuncture sheath** (Enter).
+5. **Optional femoral angiogram** (**I**). It shows the CFA bifurcation and the inferior epigastric artery.
+   * Too high (external iliac) = retroperitoneal bleed risk. Too low (at/below the bifurcation) = pseudoaneurysm/AV fistula risk.
+   * **R** / *Re-puncture* starts again (5 min compression).
+6. **Exchange over the 0.035" wire for the sheath.** Choose **5–9F** with **+/−** and short/long with **L**.
+
+*Radial (right wrist):*
+1. **Barbeau test** (**B**), shown as a pulse-oximetry trace, types A–D. For type D, use femoral.
+2. **Ultrasound puncture** of the ~2 mm radial artery, then the wire, as above.
+3. **Glidesheath Slender 5–7F** (its OD is compared with the artery).
+4. **Spasmolytic cocktail** (**C**) and **heparin** (**H**).
+
+*In the case:* the anatomy then starts at the wrist (radial → brachial → subclavian → arch). Fluoro shows the arm bones.
+Arm spasm is lower if the cocktail was given.
+
+*Scoring:* the access score, complications (high/low puncture, hematoma risk, dissection, hand-ischemia risk, radial spasm),
+time and feedback carry into the case and the debrief. **Esc** / *Skip access* goes straight to the case.
+
+**Great-vessel selection by pull-back (Vert / Berenstein / H1):**
+1. Wire to the aortic root, catheter over it.
+2. Pull the wire ≥10 mm back into the catheter.
+3. Select the catheter (**2**) and torque the tip up to the arch roof. Torque 0° = cranial; the Aim HUD shows "↓ Brachiocephalic ✓".
+4. Hold **↓ without Shift**. The tip **drops into each origin it passes**, with a visible jump and a ring flash at the ostium:
+   brachiocephalic first, then left CCA, then left subclavian (pulling back from the ascending aorta).
+5. Pull a little more and it pops out and continues. A small push (≈3 mm) also pops it out.
+
+The Aim HUD previews the next origin: "↓ vessel ✓" (will catch), "· flips out" (torque is off), "· slides past", or "rotate tip up".
+* Type I: easy.
+* Bovine arch: a Vert cannot catch the LCCA (it arises from the BCA).
+* Type III: the Vert slides past or flips out of the BCA/LCCA; the H1 still catches.
+* A tip pointing away from the roof slides past everything.
+
+There are no hidden selection windows: the catch depends on the tip direction against the origin angle, the arch type and the pull speed.
+
+**Shapes (corrected):**
+* **VTK:** long primary curve forming a reverse hook (≈28 mm limb), with a short distal tip bent ≈95° away from the shaft (Vitek 1973: "acute tip slightly over 90°").
+* **H1:** all bends on the same side (no S-shape), in 3D and in the shape preview.
+* Vert, Bern, Sim2 and MPD were checked to be single-sided too (engine test).
 
 ## Forming the Simmons 2 / using the Vitek — exact key steps
 The HUD shows **Aim** (which branch the active wire/catheter will take with the current torque — rotate until it shows
@@ -235,5 +315,8 @@ proximal aspiration, aspiration passes, complications, Arabic completeness).
 `npm i playwright-core && CHROME=/path/to/chrome node tests/browser.test.js` (UI, views, arch selectors, size
 selectors, triaxial loading, biplane, a complete SR deployment + retrieval driven through the UI buttons/keys, RTL).
 Screenshots: `shot-biplane.png`, `shot-sr-deployed.png`.
+`node tests/mobile.test.js` (phone emulation, touch only). `node tests/v8.test.js` (real keys on desktop and touch on an
+iPhone: femoral and radial access, guide menu, balloon guide, Vert pull-back dropping into BCA → LCCA → LSA).
+v8 screenshots: `shot-access-*.png`, `shot-guide-menu.png`, `shot-shapes.png`, `shot-vert-drop.png`, `shot-mobile-access.png`, `shot-mobile-drop.png`.
 
 **Training prototype — not a validated medical simulator.**

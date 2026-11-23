@@ -8,17 +8,22 @@
   const DEG = Math.PI / 180;
 
   const DEFS = {
-    // guide catheters
-    mpd: { recipe: [[6, 25], [8, 0]] },
-    h1g: { recipe: [[10, -15], [12, 0], [8, 70], [10, 0]] },
+    // guide catheters / long sheaths (all curves on ONE side, in one plane)
+    str: { recipe: [[14, 0]], name: 'Straight' },
+    mpc: { recipe: [[10, 18], [8, 0]], name: 'Multipurpose C (slight angle)' },
+    mpd: { recipe: [[6, 25], [8, 0]], name: 'Multipurpose D' },
+    h1g: { recipe: [[20, 15], [10, 0], [8, 55], [10, 0]], name: 'Headhunter guide' },
     // Vertebral: straight shaft, single gentle ~40° angle, ~2.5 cm angled segment
     vert: { recipe: [[8, 40], [18, 0]], name: 'Vertebral (Vert)' },
     // Berenstein: short ~35° angle
     bern: { recipe: [[6, 35], [14, 0]] },
-    // Headhunter H1: small reverse primary bend, straight segment, then a ~1.5 cm hockey-stick tip (net ~65°)
-    h1: { recipe: [[12, -20], [20, 0], [8, 85], [15, 0]], name: 'Headhunter (H1)' },
-    // Vitek: reverse curve with a large-radius secondary curve (~18 mm loop), short limb and short angled tip
-    vtk: { recipe: [[27, 172], [25, 0], [6, 45], [6, 0]], reverse: true, knee: 0, limb: 1, name: 'Vitek (VTK)' },
+    // Headhunter H1: a gentle primary curve and a ~1.5 cm hockey-stick tip angled the SAME way (all in one plane,
+    // one side - not an S). Net tip angle ~65-75°.
+    h1: { recipe: [[22, 15], [14, 0], [8, 55], [15, 0]], name: 'Headhunter (H1)' },
+    // Vitek (Cook VTK, J. Vitek 1973): a broad, blunt secondary (reverse) curve, a short limb, then a short distal
+    // primary curve that hooks the tip AWAY from the shaft at ~95° to the limb (acute hook, "slightly over 90°").
+    // In the arch the limb lies along the roof and the hooked tip points cranially into the origins.
+    vtk: { recipe: [[28, 165], [22, 0], [7, -95], [5, 0]], reverse: true, knee: 0, limb: 1, hook: 2, name: 'Vitek (VTK)' },
     // Simmons 2 / Sidewinder 2: shepherd's crook knee (~30 mm wide, wider than the aorta), long limb folding back
     // alongside the shaft (~7 cm), small tip angled in the same direction as the reverse curve
     sim2: { recipe: [[46, 176], [70, 0], [6, 20], [8, 0]], reverse: true, knee: 0, limb: 1, name: 'Simmons 2 (Sidewinder 2)' },
@@ -57,7 +62,11 @@
     out.tipStraight = last[1] === 0 ? last[0] : 0;
     let j = R.length - 1; while (j > 0 && R[j][1] === 0) j--; // last bend
     out.angledSegment = R.slice(j).reduce((a, p) => a + p[0], 0);
-    out.reverseBend = R.some(p => p[1] < 0);
+    out.reverseBend = R.some((p, i) => p[1] < 0 && !(def.reverse && i === def.hook));
+    // curves that bend the other way from the first curve (an S-shape) - none for any real simple curve
+    const sgn = Math.sign(R.find(p => p[1])?.[1] || 0);
+    out.sameSide = R.every((p, i) => !p[1] || Math.sign(p[1]) === sgn || (def.reverse && i === def.hook));
+    if (def.hook != null) out.hookAngle = Math.abs(R[def.hook][1]);
     return out;
   }
 

@@ -184,3 +184,36 @@ button.hold.pressed { background: #2d5a3a; }
 @media (orientation: landscape) and (max-height: 560px) {
   body.more aside { display: flex; }
 }
+
+/* ---------- v8: access phase overlay, balloon guide ---------- */
+.access-ov { position: fixed; inset: 0; z-index: 20; background: rgba(5,8,10,.88); display: flex; align-items: center; justify-content: center; padding: 10px; }
+.access-ov.hidden, .access-ov .hidden { display: none !important; }
+.acc-box { background: #1b2228; border: 1px solid #3c4a57; border-radius: 10px; padding: 10px 14px; width: min(860px, 98vw); max-height: 98vh; display: flex; flex-direction: column; gap: 6px; overflow-y: auto; }
+.acc-head { display: flex; align-items: center; gap: 10px; } .acc-head b { color: #8fd0ff; font-size: 16px; } .acc-stepno { color: #8ea0ad; } .acc-skip { margin-inline-start: auto; }
+.acc-instr { margin: 0; font-size: 13px; color: #c7d0d7; min-height: 2.6em; }
+.acc-view { position: relative; height: min(48vh, 420px); background: #000; border-radius: 8px; overflow: hidden; touch-action: none; }
+.acc-view canvas { width: 100%; height: 100%; display: block; }
+.acc-status { font-size: 13px; color: #ffd54a; min-height: 1.3em; font-variant-numeric: tabular-nums; }
+.acc-ctl { display: flex; gap: 10px; align-items: flex-start; flex-wrap: wrap; }
+.acc-pad { display: grid; grid-template-columns: repeat(4, auto); gap: 6px; direction: ltr; }
+.acc-pad button { min-width: 54px; min-height: 44px; font-size: 16px; touch-action: none; user-select: none; -webkit-user-select: none; }
+.acc-acts { display: flex; flex-wrap: wrap; gap: 6px; flex: 1 1 300px; }
+.acc-acts button { min-height: 44px; }
+.acc-ok { background: #1f6f43; border-color: #2f9a5e; font-weight: bold; }
+.acc-sheath { display: inline-flex; align-items: center; gap: 6px; } .acc-sheath b { min-width: 60px; text-align: center; }
+.acc-log { font-size: 12px; min-height: 3.6em; } .acc-log div { padding: 1px 0; }
+.acc-log .warn { color: #ffcf6b; } .acc-log .danger { color: #ff7b6b; font-weight: bold; } .acc-log .good { color: #7CFC9A; } .acc-log .tip { color: #9fd3ff; } .acc-log .info { color: #d0d8de; }
+body.access-open .touchpad, body.access-open .more-sheet { pointer-events: none; }
+.dev button.bgc { grid-column: 1 / -1; } .dev button.bgc.on { background: #6f1f1f; border-color: #b83a3a; }
+@media (max-width: 600px) {
+  .acc-box { padding: 6px 8px; gap: 4px; max-height: 100vh; border-radius: 0; width: 100vw; }
+  .access-ov { padding: 0; }
+  .acc-instr { font-size: 12px; }
+  .acc-view { height: 36vh; }
+  .acc-pad button { min-width: 0; padding: 8px 4px; font-size: 14px; }
+  .acc-pad { grid-template-columns: repeat(4, 1fr); width: 100%; }
+  .acc-acts button { flex: 1 1 40%; }
+}
+@media (max-height: 500px) and (orientation: landscape) {
+  .acc-box { flex-direction: column; max-height: 100vh; } .acc-view { height: 46vh; } .acc-instr { min-height: 0; font-size: 12px; }
+}

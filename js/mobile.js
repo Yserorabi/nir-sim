@@ -49,6 +49,7 @@
     $('tpAsp').classList.toggle('on', sim.aspiration);
     $('tpAsp').textContent = t('tp_asp') + ': ' + (sim.aspiration ? t('on') : t('off'));
     $('tpRm').classList.toggle('on', sim.roadmapOn);
+    { const g = sim.guideSpec(), b = $('tpBgc'); b.classList.toggle('hidden', !g.bgc); b.disabled = !sim.devices.guide.inserted; b.classList.toggle('on', !!sim.bgcInflated); b.textContent = sim.bgcInflated ? t('bgc_on') : t('bgc_off'); }
     $('tpRet').disabled = !sim.devices.sr.deployed;
     $('tpView').textContent = t('view') + ': ' + t('view_' + R.view);
     $('tpBi').textContent = R.biplane ? t('single') : t('tp_biplane'); $('tpBi').classList.toggle('on', R.biplane);
@@ -77,6 +78,7 @@
     if (d.inserted) sim.remove(id); else { if (sim.insert(id)) sim.setActive(id); }
     focusDev = id; A.renderDevices(); refresh();
   });
+  $('tpBgc').addEventListener('click', () => { sim.setBalloon(!sim.bgcInflated); A.renderDevices(); refresh(); });
   $('tpTriax').addEventListener('click', () => { sim.loadTriaxial(); focusDev = sim.active; A.renderDevices(); refresh(); });
   $('tpInj').addEventListener('click', () => sim.inject());
   $('tpRm').addEventListener('click', () => { sim.toggleRoadmap(); A.renderButtons(); refresh(); });
