@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111518">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="NIR-Sim">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<title>NIR-Sim · Neurointervention Trainer</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header>
+  <div class="brand"><b data-i18n="app_title"></b><span data-i18n="app_sub"></span></div>
+  <div class="hdr-ctl">
+    <label><span data-i18n="scenario"></span> <select id="scenarioSel"></select></label>
+    <label><span data-i18n="arch_type"></span> <select id="archSel"></select></label>
+    <label><span data-i18n="variant"></span> <select id="varSel"></select></label>
+    <label><span data-i18n="siphon"></span> <select id="siphonSel"></select></label>
+    <button id="startBtn" data-i18n="start"></button>
+    <button id="endBtn" class="warnbtn" data-i18n="end_case"></button>
+    <button id="langBtn" class="lang" data-i18n="lang_btn"></button>
+  </div>
+</header>
+<main>
+  <section class="monitor-col">
+    <div class="hud" id="hud"></div>
+    <div class="monitor"><canvas id="fluoro" tabindex="0"></canvas><canvas id="tipInset" class="tipinset hidden"></canvas><div id="banner" class="banner"></div></div>
+    <div id="hintBox" class="hintbox"><b data-i18n="hint"></b>: <span id="hintTxt"></span></div>
+    <div class="ctlbar">
+      <button class="hold big" id="advBtn" data-i18n="advance"></button>
+      <button class="hold big" id="retBtn" data-i18n="retract"></button>
+      <button class="hold" id="rotLBtn" data-i18n="rot_l"></button>
+      <canvas id="dial" width="64" height="64" title="J-tip torque"></canvas>
+      <button class="hold" id="rotRBtn" data-i18n="rot_r"></button>
+      <label class="chk"><input type="checkbox" id="fastChk"> <span data-i18n="fast"></span></label>
+      <button class="hold" id="pedalBtn" data-i18n="pedal"></button>
+    </div>
+    <div class="controls-help"><b data-i18n="controls_title"></b>: <span data-i18n="controls"></span></div>
+  </section>
+  <div class="sidecol">
+  <section id="touchPad" class="touchpad" aria-label="touch controls">
+    <div class="tp-aim"><span data-i18n="m_aim"></span>: <b id="tpAim">—</b> <span id="tpLoc" class="tp-loc"></span></div>
+    <div class="chips" id="devChips"></div>
+    <div class="tp-row"><button id="tpIO"></button><button id="tpTriax" data-i18n="tp_triax"></button><button id="tpMore" class="tp-more" data-i18n="tp_more"></button></div>
+    <div class="tp-main">
+      <div class="tp-push">
+        <button class="hold tp-big" id="tpPush"></button>
+        <button class="hold tp-big" id="tpPull"></button>
+      </div>
+      <div class="tp-dialwrap">
+        <canvas id="tpDial" width="132" height="132"></canvas>
+        <div class="tp-rotrow"><button class="hold" id="tpRotL">⟲</button><button id="tpFast" class="tp-toggle"></button><button class="hold" id="tpRotR">⟳</button></div>
+      </div>
+    </div>
+    <div class="tp-grid">
+      <button class="hold" id="tpPedal" data-i18n="tp_fluoro"></button>
+      <button id="tpInj" data-i18n="tp_inject"></button>
+      <button id="tpRm" data-i18n="tp_roadmap"></button>
+      <button id="tpAsp" data-i18n="tp_asp"></button>
+      <button class="hold" id="tpUns" data-i18n="tp_unsheath"></button>
+      <button class="hold" id="tpFluff" data-i18n="tp_fluff"></button>
+      <button id="tpRet" data-i18n="tp_retrieve"></button>
+      <button id="tpW30" data-i18n="tp_wait"></button>
+      <button id="tpView"></button>
+      <button id="tpBi"></button>
+      <button id="tpPlane"></button>
+      <button id="tpZoom" data-i18n="tp_zoom_reset"></button>
+    </div>
+    <p class="tp-help" data-i18n="touch_help"></p>
+  </section>
+  <aside>
+    <button id="moreClose" class="more-close" data-i18n="tp_more_close"></button>
+    <div class="panel"><h3 data-i18n="brief"></h3><p id="briefTxt"></p><ul id="goalList" class="goals"></ul><p class="hint" data-i18n="anat_hint"></p></div>
+    <div class="panel"><h3 data-i18n="devices"></h3><div id="devList"></div>
+</div>
+    <div class="panel" id="shapePanel"><h3 data-i18n="shapes_title"></h3><canvas id="shapeCanvas"></canvas>
+      <label class="chk"><input type="checkbox" id="insetChk" checked> <span data-i18n="tip_closeup"></span></label></div>
+    <div class="panel"><h3 data-i18n="imaging"></h3>
+      <div class="btnrow">
+        <button id="injBtn"></button>
+        <button id="microRunBtn" data-i18n="inject_micro"></button>
+      </div>
+      <div class="btnrow viewrow"><span data-i18n="view"></span>
+        <button id="vAP" data-view="ap" data-i18n="view_ap"></button><button id="vLAO" data-view="lao" data-i18n="view_lao"></button><button id="vLAT" data-view="lat" data-i18n="view_lat"></button><button id="biBtn"></button></div>
+      <label class="chk"><input type="checkbox" id="rmChk"> <span data-i18n="roadmap"></span></label>
+      <label class="chk"><input type="checkbox" id="ghostChk"> <span data-i18n="ghost"></span></label>
+      <div class="btnrow"><button id="zinBtn" data-i18n="zoom_in"></button><button id="zoutBtn" data-i18n="zoom_out"></button>
+        <label class="chk"><input type="checkbox" id="autoZChk" checked> <span data-i18n="zoom_auto"></span></label></div>
+    </div>
+    <div class="panel"><h3 data-i18n="thrombectomy"></h3>
+      <div class="btnrow"><button id="aspBtn"></button><button id="withdrawBtn" data-i18n="withdraw"></button></div>
+      <div class="btnrow"><button id="triaxBtn" data-i18n="triaxial"></button></div>
+      <div class="btnrow"><button class="hold" id="unsheathBtn" data-i18n="unsheath_hold"></button><button class="hold" id="fluffBtn" data-i18n="fluff_hold"></button></div>
+      <div class="btnrow"><button id="deployBtn" data-i18n="deploy"></button><button id="retrieveBtn" data-i18n="retrieve"></button></div>
+      <div class="btnrow"><button id="w30Btn" data-i18n="wait30"></button><button id="w60Btn" data-i18n="wait60"></button></div>
+    </div>
+    <div class="panel logpanel"><h3 data-i18n="log"></h3><div id="log"></div></div>
+  </aside>
+  </div>
+</main>
+<div id="modal" class="modal hidden"><div class="modal-box" id="modalBox"></div></div>
+<noscript>JavaScript is required.</noscript>
+<script src="js/anatomy.js"></script>
+<script src="js/i18n.js"></script>
+<script src="js/shapes.js"></script>
+<script src="js/sim.js"></script>
+<script src="js/scenarios.js"></script>
+<script src="js/render.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/mobile.js"></script>
+</body>
+</html>
